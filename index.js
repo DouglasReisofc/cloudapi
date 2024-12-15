@@ -59,8 +59,8 @@ app.post('/webhook', async (req, res) => {
       return res.status(400).send('Evento inválido');
     }
 
-    // Envia resposta inicial ao Facebook ou Webhook
-    res.status(200).send('Recebido'); // Resposta enviada imediatamente
+    // Responde imediatamente ao Webhook
+    res.status(200).send('Recebido'); // Resposta imediata
 
     const entry = req.body.entry[0];
     const message = entry.changes[0]?.value?.messages?.[0];
@@ -71,7 +71,7 @@ app.post('/webhook', async (req, res) => {
       // Armazenar os dados do usuário de forma assíncrona
       await storeUserData(sender, senderName);
 
-      // Enviar o menu inicial, se necessário
+      // Enviar menu inicial, se necessário
       if (!message.context) {
         sendMenuInicial(sender, senderName);
       } else if (message.type === 'interactive' && message.interactive.type === 'button_reply') {
@@ -101,10 +101,9 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-
 async function sendMenuInicial(sender, senderName) {
   const user = await getUserData(sender);
-  const saldo = user && !isNaN(user.saldo) ? parseFloat(user.saldo) : 0; // Garantir que saldo seja um número
+  const saldo = user && !isNaN(user.saldo) ? parseFloat(user.saldo) : 0;
 
   const responsePayload = {
     messaging_product: 'whatsapp',
@@ -115,7 +114,7 @@ async function sendMenuInicial(sender, senderName) {
       header: {
         type: 'image',
         image: {
-          link: 'https://i.ibb.co/Xp5xktQ/Picsart-24-11-26-22-38-13-859.jpg' // URL da imagem
+          link: 'https://i.ibb.co/Xp5xktQ/Picsart-24-11-26-22-38-13-859.jpg'
         }
       },
       body: {
@@ -127,8 +126,6 @@ async function sendMenuInicial(sender, senderName) {
 ◆ ━━━━❪✪❫━━━━ ◆
 
 💟 𝗦𝗲𝗷𝗮 𝗯𝗲𝗺-𝘃𝗶𝗻𝗱𝗼 𝗮 𝗺𝗲𝗹𝗵𝗼𝗿 𝗹𝗼𝗷𝗮 𝗱𝗲 𝘀𝘁𝗿𝗲𝗮𝗺𝗶𝗻𝗴𝘀 𝗱𝗼 𝗪𝗵𝗮𝘁𝘀𝗮𝗽𝗽 ✨
-
-
 `
       },
       footer: {
@@ -174,6 +171,46 @@ async function sendMenuInicial(sender, senderName) {
     console.error('Erro ao enviar menu inicial com imagem:', error.response ? error.response.data : error.message);
   }
 }
+
+async function handleAdicionarSaldo(sender) {
+  const user = await getUserData(sender);
+  if (user) {
+    user.saldo += 10; // Adicionando R$ 10 ao saldo
+    const client = await pool.connect();
+    try {
+      await client.query('UPDATE clientes SET saldo = $1 WHERE whatsapp = $2', [user.saldo, sender]);
+      console.log(`Saldo atualizado para o usuário ${sender}. Novo saldo: R$ ${user.saldo}`);
+    } catch (err) {
+      console.error('Erro ao atualizar saldo do usuário:', err);
+    } finally {
+      client.release();
+    }
+
+    const responsePayload = {
+      messaging_product: 'whatsapp',
+      to: sender,
+      type: 'text',
+      text: {
+        body: `Seu saldo foi atualizado! Seu novo saldo é R$ ${user.saldo.toFixed(2)}.`
+      }
+    };
+
+    try {
+      await axios.post(`https://graph.facebook.com/v15.0/${phoneNumberId}/messages`, responsePayload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      console.log('Resposta de adicionar saldo enviada com sucesso');
+    } catch (error) {
+      console.error('Erro ao enviar mensagem de saldo atualizado:', error.response ? error.response.data : error.message);
+    }
+  } else {
+    console.error(`Usuário ${sender} não encontrado.`);
+  }
+}
+
 
 
 // Função para armazenar os dados do usuário no banco de dados
