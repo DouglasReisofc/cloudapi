@@ -47,7 +47,6 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// Rota POST para receber os eventos de mensagens
 app.post('/webhook', async (req, res) => {
   try {
     const evento = JSON.stringify(req.body, null, 2);
@@ -55,23 +54,24 @@ app.post('/webhook', async (req, res) => {
     console.log(`Evento recebido em: ${timestamp}`);
     console.log(evento);
 
+    // Verifica se o evento está correto antes de qualquer outra coisa
     if (!req.body || !req.body.entry || !req.body.entry[0] || !req.body.entry[0].changes) {
       return res.status(400).send('Evento inválido');
     }
+
+    // Envia resposta inicial ao Facebook ou Webhook
+    res.status(200).send('Recebido'); // Resposta enviada imediatamente
 
     const entry = req.body.entry[0];
     const message = entry.changes[0]?.value?.messages?.[0];
     const sender = entry.changes[0]?.value?.contacts?.[0]?.wa_id;
     const senderName = entry.changes[0]?.value?.contacts?.[0]?.profile?.name;
 
-    // Confirma o recebimento do webhook logo após validar a requisição
-    res.status(200).send('Recebido');
-
     if (message) {
-      // Armazenar o número de WhatsApp e dados do usuário se for a primeira mensagem
+      // Armazenar os dados do usuário de forma assíncrona
       await storeUserData(sender, senderName);
 
-      // Enviar a mensagem inicial com saldo e nome
+      // Enviar o menu inicial, se necessário
       if (!message.context) {
         sendMenuInicial(sender, senderName);
       } else if (message.type === 'interactive' && message.interactive.type === 'button_reply') {
@@ -100,6 +100,7 @@ app.post('/webhook', async (req, res) => {
     res.status(500).send('Erro no processamento do evento');
   }
 });
+
 
 async function sendMenuInicial(sender, senderName) {
   const user = await getUserData(sender);
