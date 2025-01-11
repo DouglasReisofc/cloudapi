@@ -58,6 +58,7 @@ app.get('/api/youtube', async (req, res) => {
       const videoInfo = await youtubedl(url, {
           dumpSingleJson: true,
           format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]', // Prioriza MP4 com áudio embutido
+          cookies: './cookies.txt', // Caminho para o arquivo de cookies
       });
 
       console.log('✔️ YouTube: Dados obtidos:', videoInfo);
