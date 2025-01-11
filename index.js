@@ -1,4 +1,5 @@
 const express = require('express');
+const dns = require('dns');
 const axios = require('axios');
 const youtubedl = require('youtube-dl-exec');
 const { JSDOM } = require('jsdom');
