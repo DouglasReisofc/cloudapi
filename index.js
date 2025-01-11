@@ -310,7 +310,7 @@ app.get('/api/pinterest', async (req, res) => {
           image_links: imageUrls,
       };
 
-      console.log('✔️ Pinterest: Dados de imagem formatados:', formattedImageData);
+      console.log('✔️ Pinterest: Dados de imagem formatados  :', formattedImageData);
 
       return res.json(formattedImageData);
   } catch (error) {
