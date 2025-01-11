@@ -1,4 +1,6 @@
 const express = require('express');
+const dns = require('dns');
+const request = require('request-promise');
 const axios = require('axios');
 const youtubedl = require('youtube-dl-exec');
 const { JSDOM } = require('jsdom');
@@ -43,9 +45,9 @@ app.get('/api/tiktok', async (req, res) => {
     }
 });
 
+
 app.get('/api/youtube', async (req, res) => {
   const { url } = req.query;
-  const cookiesPath = path.resolve('./cookies.txt'); // Caminho absoluto do arquivo de cookies
 
   if (!url) {
       console.error('❌ YouTube: URL não fornecida.');
@@ -55,21 +57,23 @@ app.get('/api/youtube', async (req, res) => {
   try {
       console.log('🔄 YouTube: Processando URL:', url);
 
-      // Verificar se o arquivo de cookies existe
-      if (!fs.existsSync(cookiesPath)) {
-          console.error('❌ Cookies: Arquivo cookies.txt não encontrado.');
-          return res.status(500).json({ error: 'Arquivo de cookies não encontrado.' });
-      }
+      // Configurar servidores DNS personalizados
+      dns.setServers(['1.1.1.1', '8.8.8.8']); // Cloudflare DNS e Google DNS
+      console.log('✔️ DNS: Resolvers configurados para 1.1.1.1 e 8.8.8.8');
 
-      // Ler os primeiros bytes do arquivo de cookies para confirmação
-      const cookiesContent = fs.readFileSync(cookiesPath, 'utf-8');
-      console.log('✔️ Cookies: Primeiros 100 caracteres do arquivo:', cookiesContent.slice(0, 100));
+      // Testar resolução DNS
+      dns.lookup('youtube.com', (err, address, family) => {
+          if (err) {
+              console.error('❌ DNS: Falha ao resolver youtube.com', err.message);
+          } else {
+              console.log(`✔️ DNS: Resolução bem-sucedida - ${address}, IPv${family}`);
+          }
+      });
 
-      // Obter informações detalhadas do vídeo
+      // Obter informações detalhadas do vídeo usando o DNS configurado
       const videoInfo = await youtubedl(url, {
           dumpSingleJson: true,
           format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]', // Prioriza MP4 com áudio embutido
-          cookies: cookiesPath, // Caminho para o arquivo de cookies
       });
 
       console.log('✔️ YouTube: Dados obtidos:', videoInfo);
