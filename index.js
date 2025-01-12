@@ -391,33 +391,40 @@ app.get('/api/convert', async (req, res) => {
 
       // Caminho absoluto para o arquivo de cookies
       const cookiesPath = path.resolve('./cookies.txt');
-
-      // Verificar se o arquivo de cookies existe
       if (!fs.existsSync(cookiesPath)) {
           console.error('❌ Cookies: Arquivo cookies.txt não encontrado.');
           return res.status(500).json({ error: 'Arquivo de cookies não encontrado.' });
       }
-
       console.log('✔️ Cookies: Arquivo de cookies carregado.');
 
-      // Testar resolução DNS
-      dns.lookup('youtube.com', (err, address, family) => {
-          if (err) {
-              console.error('❌ DNS: Falha ao resolver youtube.com', err.message);
-              return res.status(500).json({ error: 'Falha na resolução de DNS.' });
-          } else {
-              console.log(`✔️ DNS: Resolução bem-sucedida - ${address}, IPv${family}`);
-          }
+      // Obter a URL de áudio direto usando `youtubedl`
+      console.log('🔄 Obtendo URL de áudio direto com youtubedl...');
+      const videoInfo = await youtubedl(url, {
+          dumpSingleJson: true,
+          format: 'bestaudio/best',
+          cookies: cookiesPath,
+          addHeader: [
+              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+              'Accept-Language: en-US,en;q=0.9',
+          ],
       });
+
+      const audioUrl = videoInfo.url || null;
+      if (!audioUrl) {
+          console.error('❌ Conversão: Não foi possível obter a URL do áudio.');
+          return res.status(500).json({ error: 'Não foi possível obter a URL do áudio.' });
+      }
+      console.log('✔️ URL de áudio direto obtida:', audioUrl);
 
       // Caminho temporário para salvar o arquivo convertido
       const tempFilePath = path.join('./tmp', `${Date.now()}.${format}`);
 
-      // Comando de conversão
+      // Executar a conversão com `ffmpeg`
+      console.log('🔄 Executando conversão com ffmpeg...');
       const command = [
           'ffmpeg',
           '-i',
-          url,
+          audioUrl,
           '-codec:a',
           format === 'mp3' ? 'libmp3lame' : 'aac',
           '-q:a',
@@ -425,21 +432,18 @@ app.get('/api/convert', async (req, res) => {
           tempFilePath,
       ];
 
-      // Executar a conversão
       const { spawn } = require('child_process');
       const process = spawn(command[0], command.slice(1));
 
-      process.on('error', (error) => {
-          console.error('❌ Conversão: Erro no processo de conversão.', error.message);
-          return res.status(500).json({ error: 'Erro no processo de conversão.' });
+      process.stderr.on('data', (data) => {
+          console.error(`⚠️ ffmpeg STDERR: ${data}`);
       });
 
       process.on('close', (code) => {
           if (code === 0) {
-              console.log('✔️ Conversão: Arquivo convertido com sucesso:', tempFilePath);
+              console.log('✔️ Conversão concluída com sucesso:', tempFilePath);
               return res.download(tempFilePath, (err) => {
                   if (!err) {
-                      // Remover o arquivo temporário após o download
                       fs.unlinkSync(tempFilePath);
                       console.log('✔️ Arquivo temporário removido:', tempFilePath);
                   } else {
@@ -448,7 +452,7 @@ app.get('/api/convert', async (req, res) => {
               });
           } else {
               console.error('❌ Conversão: Processo de conversão falhou com código:', code);
-              return res.status(500).json({ error: 'Falha no processo de conversão.' });
+              return res.status(500).json({ error: 'Falha no processo de conversão com ffmpeg.' });
           }
       });
   } catch (error) {
