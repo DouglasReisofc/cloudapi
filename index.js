@@ -59,14 +59,17 @@ app.get('/api/youtube', async (req, res) => {
   try {
       console.log('🔄 YouTube: Processando URL:', url);
 
-      // Configuração do proxy
-      const proxy = 'http://18.228.149.161:80';
+      // Ignorar certificados SSL inválidos
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+      // Proxy para contornar bloqueios regionais
+      const proxy = "http://18.228.149.161:80";
 
       // Obter informações do vídeo
       const videoInfo = await youtubedl(url, {
           dumpSingleJson: true,
           format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-          proxy: proxy, // Adiciona o proxy
+          proxy, // Configura o proxy
           addHeader: [
               'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
               'Accept-Language: en-US,en;q=0.9',
@@ -111,7 +114,6 @@ app.get('/api/youtube', async (req, res) => {
       return res.status(500).json({ error: 'Erro ao processar o link do YouTube.' });
   }
 });
-
 
 /**
  * Rota para Instagram (melhor resolução + informações extras)
