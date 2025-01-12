@@ -7,8 +7,8 @@ const { JSDOM } = require('jsdom');
 const fs = require('fs');
 const path = require('path');
 
-// Cria pasta temporária para salvar arquivos
 const tmpFolder = './tmp';
+
 if (!fs.existsSync(tmpFolder)) {
     fs.mkdirSync(tmpFolder);
     console.log('📁 Pasta temporária criada:', tmpFolder);
@@ -376,20 +376,38 @@ app.get('/api/others', async (req, res) => {
 
 // Função para limpar arquivos antigos
 const cleanupTempFiles = () => {
-  fs.readdir(tempFolder, (err, files) => {
-      if (err) return console.error('❌ Erro ao listar arquivos temporários:', err);
+  fs.readdir(tmpFolder, (err, folders) => {
+      if (err) return console.error('❌ Erro ao listar diretórios temporários:', err);
 
       const now = Date.now();
-      files.forEach((file) => {
-          const filePath = path.join(tempFolder, file);
-          fs.stat(filePath, (err, stats) => {
-              if (err) return console.error('❌ Erro ao obter informações do arquivo:', err);
-              if (now - stats.mtimeMs > 10 * 60 * 1000) { // Arquivos mais antigos que 10 minutos
-                  fs.unlink(filePath, (err) => {
-                      if (err) return console.error('❌ Erro ao remover arquivo temporário:', err);
-                      console.log('🗑️ Arquivo temporário removido:', filePath);
-                  });
+
+      folders.forEach((folder) => {
+          const folderPath = path.join(tmpFolder, folder);
+
+          fs.readdir(folderPath, (err, files) => {
+              if (err) {
+                  if (err.code === 'ENOTDIR') {
+                      // Caso encontre um arquivo em vez de pasta, tenta remover
+                      fs.unlink(folderPath, (unlinkErr) => {
+                          if (!unlinkErr) console.log('🗑️ Arquivo órfão removido:', folderPath);
+                      });
+                      return;
+                  }
+                  return console.error('❌ Erro ao listar arquivos da pasta:', err);
               }
+
+              files.forEach((file) => {
+                  const filePath = path.join(folderPath, file);
+                  fs.stat(filePath, (err, stats) => {
+                      if (err) return console.error('❌ Erro ao obter informações do arquivo:', err);
+                      if (now - stats.mtimeMs > 10 * 60 * 1000) { // Arquivos mais antigos que 10 minutos
+                          fs.unlink(filePath, (err) => {
+                              if (err) return console.error('❌ Erro ao remover arquivo temporário:', err);
+                              console.log('🗑️ Arquivo temporário removido:', filePath);
+                          });
+                      }
+                  });
+              });
           });
       });
   });
@@ -481,6 +499,9 @@ app.get('/api/convert/:userId', async (req, res) => {
       return res.status(500).json({ error: 'Erro inesperado durante a conversão.' });
   }
 });
+
+// Rota para servir arquivos temporários
+app.use('/:userId', express.static(tempFolder));
 
 
 
