@@ -482,9 +482,6 @@ app.get('/api/convert/:userId', async (req, res) => {
   }
 });
 
-// Rota para servir arquivos temporários
-app.use('/:userId', express.static(tempFolder));
-
 
 
 
