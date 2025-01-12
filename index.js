@@ -48,71 +48,78 @@ app.get('/api/tiktok', async (req, res) => {
     }
 });
 
+/**
+ * Rota para YouTube (usando youtube-dl-exec)
+ * Aceita cookies.txt para casos de restrição/idade.
+ */
 app.get('/api/youtube', async (req, res) => {
-  const { url } = req.query;
+    const { url } = req.query;
 
-  if (!url) {
-      console.error('❌ YouTube: URL não fornecida.');
-      return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
-  }
+    if (!url) {
+        console.error('❌ YouTube: URL não fornecida.');
+        return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
+    }
 
-  try {
-      console.log('🔄 YouTube: Processando URL:', url);
+    try {
+        console.log('🔄 YouTube: Processando URL:', url);
 
-      // Ignorar certificados SSL inválidos
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+        // Verifica se existe o arquivo cookies.txt
+        const cookiesPath = path.resolve('./cookies.txt');
+        if (!fs.existsSync(cookiesPath)) {
+            console.warn('⚠️ YouTube: Arquivo cookies.txt não encontrado. Continuando sem cookies...');
+        }
 
-      // Proxy para contornar bloqueios regionais
-      const proxy = "http://18.228.149.161:80";
+        // Obter informações do vídeo
+        const videoInfo = await youtubedl(url, {
+            dumpSingleJson: true,
+            format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+            cookies: fs.existsSync(cookiesPath) ? './cookies.txt' : undefined,
+            addHeader: [
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Accept-Language: en-US,en;q=0.9',
+                'Referer: https://www.youtube.com/',
+            ],
+        });
 
-      // Obter informações do vídeo
-      const videoInfo = await youtubedl(url, {
-          dumpSingleJson: true,
-          format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-          proxy, // Configura o proxy
-          addHeader: [
-              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-              'Accept-Language: en-US,en;q=0.9',
-              'Referer: https://www.youtube.com/',
-          ],
-      });
+        console.log('✔️ YouTube: Dados obtidos:', videoInfo);
 
-      console.log('✔️ YouTube: Dados obtidos:', videoInfo);
+        // Filtra o melhor formato MP4
+        const videoFormat = videoInfo.formats.find(
+            (format) =>
+                format.ext === 'mp4' &&
+                format.acodec !== 'none' &&
+                format.vcodec !== 'none' &&
+                !format.url.includes('.m3u8')
+        );
+        // Tenta encontrar MP3 ou áudio puro
+        const audioFormat = videoInfo.formats.find(
+            (format) =>
+                format.ext === 'mp3' ||
+                (format.acodec !== 'none' && format.vcodec === 'none' && !format.url.includes('.m3u8'))
+        );
 
-      const videoFormat = videoInfo.formats.find(
-          (format) =>
-              format.ext === 'mp4' &&
-              format.acodec !== 'none' &&
-              format.vcodec !== 'none' &&
-              !format.url.includes('.m3u8')
-      );
-      const audioFormat = videoInfo.formats.find(
-          (format) =>
-              format.ext === 'mp3' ||
-              (format.acodec !== 'none' && format.vcodec === 'none' && !format.url.includes('.m3u8'))
-      );
+        // Tamanho aproximado do vídeo (pode ser nulo)
+        const videoSize = videoFormat ? (videoFormat.filesize || videoFormat.filesize_approx) : null;
 
-      const videoSize = videoFormat ? (videoFormat.filesize || videoFormat.filesize_approx) : null;
+        const formattedData = {
+            title: videoInfo.title || 'Título não disponível',
+            duration: videoInfo.duration
+                ? `${Math.floor(videoInfo.duration / 60)} min ${videoInfo.duration % 60} sec`
+                : 'Duração não disponível',
+            uploader: videoInfo.uploader || 'Uploader desconhecido',
+            views: videoInfo.view_count || 'N/A',
+            thumbnail: videoInfo.thumbnail || '',
+            mp4_link: videoFormat ? videoFormat.url : 'MP4 não disponível',
+            mp3_link: audioFormat ? audioFormat.url : 'MP3 não disponível',
+            filesize: videoSize,
+        };
 
-      const formattedData = {
-          title: videoInfo.title || 'Título não disponível',
-          duration: videoInfo.duration
-              ? `${Math.floor(videoInfo.duration / 60)} min ${videoInfo.duration % 60} sec`
-              : 'Duração não disponível',
-          uploader: videoInfo.uploader || 'Uploader desconhecido',
-          views: videoInfo.view_count || 'N/A',
-          thumbnail: videoInfo.thumbnail || '',
-          mp4_link: videoFormat ? videoFormat.url : 'MP4 não disponível',
-          mp3_link: audioFormat ? audioFormat.url : 'MP3 não disponível',
-          filesize: videoSize,
-      };
-
-      console.log('✔️ YouTube: Dados formatados:', formattedData);
-      return res.json(formattedData);
-  } catch (error) {
-      console.error('❌ YouTube: Erro:', error.message);
-      return res.status(500).json({ error: 'Erro ao processar o link do YouTube.' });
-  }
+        console.log('✔️ YouTube: Dados formatados:', formattedData);
+        return res.json(formattedData);
+    } catch (error) {
+        console.error('❌ YouTube: Erro:', error.message);
+        return res.status(500).json({ error: 'Erro ao processar o link do YouTube.' });
+    }
 });
 
 /**
