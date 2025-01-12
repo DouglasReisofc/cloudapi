@@ -1,4 +1,5 @@
 const express = require('express');
+const { exec } = require('child_process'); // Para executar comandos do FFmpeg
 const dns = require('dns');
 const axios = require('axios');
 const youtubedl = require('youtube-dl-exec');
@@ -371,6 +372,77 @@ app.get('/api/others', async (req, res) => {
         return res.status(500).json({ error: 'Erro ao processar o link.' });
     }
 });
+
+
+app.get('/api/convert', async (req, res) => {
+  const { url, format = 'mp3' } = req.query;
+
+  if (!url) {
+      console.error('❌ Conversão: URL não fornecida.');
+      return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
+  }
+
+  if (!['mp3', 'mp4'].includes(format)) {
+      console.error('❌ Conversão: Formato inválido.');
+      return res.status(400).json({ error: 'O formato deve ser "mp3" ou "mp4".' });
+  }
+
+  try {
+      console.log(`🔄 Conversão: Processando URL para ${format}:`, url);
+
+      // Obter informações do vídeo diretamente da URL do YouTube
+      const videoInfo = await youtubedl(url, {
+          dumpSingleJson: true,
+          format: 'bestaudio[ext=webm]/bestaudio/best[ext=mp4]/best',
+          addHeader: [
+              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+              'Referer: https://www.youtube.com/',
+          ],
+      });
+
+      console.log('✔️ Dados obtidos do vídeo:', videoInfo);
+
+      const audioFormat = videoInfo.formats.find(
+          (format) => format.acodec !== 'none' && format.vcodec === 'none'
+      );
+
+      const audioUrl = audioFormat?.url;
+      if (!audioUrl) {
+          console.error('❌ Nenhum link de áudio encontrado.');
+          return res.status(404).json({ error: 'Áudio não encontrado no link fornecido.' });
+      }
+
+      console.log('✔️ Link completo do áudio:', audioUrl);
+
+      const outputFilename = `${Date.now()}.${format}`;
+      const outputPath = path.join(tmpFolder, outputFilename);
+
+      console.log('🔄 Baixando e convertendo o arquivo...');
+
+      const ffmpegCommand =
+          format === 'mp3'
+              ? `ffmpeg -y -i "${audioUrl}" -codec:a libmp3lame -q:a 2 "${outputPath}"`
+              : `ffmpeg -y -i "${audioUrl}" -c:v libx264 -c:a aac "${outputPath}"`;
+
+      exec(ffmpegCommand, (error, stdout, stderr) => {
+          if (error) {
+              console.error('❌ Conversão: Erro ao processar o arquivo.', error.message);
+              return res.status(500).json({ error: 'Erro ao converter o arquivo.' });
+          }
+
+          console.log('✔️ Conversão concluída com sucesso.');
+
+          // URL pública para o arquivo convertido
+          const publicUrl = `http://localhost:${port}/tmp/${outputFilename}`;
+          return res.json({ message: `Arquivo convertido para ${format} com sucesso.`, url: publicUrl });
+      });
+  } catch (error) {
+      console.error('❌ Conversão: Erro inesperado.', error.message);
+      return res.status(500).json({ error: 'Erro ao processar o arquivo.' });
+  }
+});
+
+
 
 // Inicia o servidor
 app.listen(port, () => {
