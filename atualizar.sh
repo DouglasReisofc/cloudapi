@@ -2,6 +2,18 @@
 
 echo "🔄 Iniciando processo de atualização do repositório..."
 
+# Certifique-se de que o diretório `node_modules` está ignorado no Git
+if ! grep -q "node_modules/" .gitignore; then
+    echo "✔️ Adicionando node_modules ao .gitignore..."
+    echo "node_modules/" >> .gitignore
+    git add .gitignore
+    git commit -m "Adicionado node_modules ao .gitignore"
+fi
+
+# Certifique-se de que `node_modules` não esteja rastreado
+echo "✔️ Removendo node_modules do controle de versão, se necessário..."
+git rm -r --cached node_modules/ 2>/dev/null
+
 # Certifique-se de que não há alterações não confirmadas
 echo "✔️ Limpando alterações locais..."
 git reset --hard HEAD
