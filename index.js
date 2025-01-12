@@ -18,7 +18,9 @@ if (!fs.existsSync(tmpFolder)) {
 const app = express();
 const port = 3000;
 
-// Rota para TikTok
+/**
+ * Rota para TikTok
+ */
 app.get('/api/tiktok', async (req, res) => {
     const { url } = req.query;
 
@@ -45,7 +47,9 @@ app.get('/api/tiktok', async (req, res) => {
     }
 });
 
-// Rota para YouTube
+/**
+ * Rota para YouTube
+ */
 app.get('/api/youtube', async (req, res) => {
     const { url } = req.query;
 
@@ -74,7 +78,7 @@ app.get('/api/youtube', async (req, res) => {
         // Obter informações detalhadas do vídeo com cabeçalhos e cookies
         const videoInfo = await youtubedl(url, {
             dumpSingleJson: true,
-            format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]', // Prioriza MP4 com áudio embutido
+            format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]', // Prioriza MP4
             cookies: './cookies.txt', // Caminho para o arquivo de cookies
             addHeader: [
                 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -94,14 +98,14 @@ app.get('/api/youtube', async (req, res) => {
                 !format.url.includes('.m3u8')
         );
 
-        // Filtrar o melhor formato MP3 ou equivalente em áudio puro
+        // Filtrar o melhor formato MP3 ou áudio puro
         const audioFormat = videoInfo.formats.find(
             (format) =>
                 format.ext === 'mp3' ||
                 (format.acodec !== 'none' && format.vcodec === 'none' && !format.url.includes('.m3u8'))
         );
 
-        // Extrair o tamanho aproximado do vídeo
+        // Tamanho aproximado do vídeo
         const videoSize = videoFormat ? videoFormat.filesize || videoFormat.filesize_approx : null;
 
         // Formatar a resposta
@@ -115,7 +119,7 @@ app.get('/api/youtube', async (req, res) => {
             thumbnail: videoInfo.thumbnail || '',
             mp4_link: videoFormat ? videoFormat.url : 'MP4 não disponível',
             mp3_link: audioFormat ? audioFormat.url : 'MP3 não disponível',
-            filesize: videoSize,
+            filesize: videoSize, // Tamanho aproximado
         };
 
         console.log('✔️ YouTube: Dados formatados:', formattedData);
@@ -127,7 +131,9 @@ app.get('/api/youtube', async (req, res) => {
     }
 });
 
-// Rota para Kwai
+/**
+ * Rota para Kwai
+ */
 app.get('/api/kwai', async (req, res) => {
     const { url } = req.query;
 
@@ -147,10 +153,10 @@ app.get('/api/kwai', async (req, res) => {
 
         console.log('✔️ Kwai: Dados obtidos:', videoInfo);
 
-        // Separar nome do criador e handle (dentro dos parênteses)
+        // Extrair nome do criador e handle
         const title = videoInfo.title || '';
-        const uploaderName = title.split('(')[0].trim(); // Nome antes dos parênteses
-        const uploaderHandle = title.match(/\((.*?)\)/)?.[1] || 'Desconhecido'; // Nome dentro dos parênteses
+        const uploaderName = title.split('(')[0].trim(); // Antes do '('
+        const uploaderHandle = title.match(/\((.*?)\)/)?.[1] || 'Desconhecido'; // Dentro dos parênteses
 
         // Formatar a resposta
         const formattedData = {
@@ -178,7 +184,9 @@ app.get('/api/kwai', async (req, res) => {
     }
 });
 
-// Rota para Facebook
+/**
+ * Rota para Facebook
+ */
 app.get('/api/facebook', async (req, res) => {
     const { url } = req.query;
 
@@ -198,7 +206,7 @@ app.get('/api/facebook', async (req, res) => {
 
         console.log('✔️ Facebook: Dados obtidos:', videoInfo);
 
-        // Filtrar o melhor formato MP4 com áudio e vídeo integrados
+        // Filtrar melhor formato MP4 (áudio + vídeo)
         const videoFormat = videoInfo.formats.find(
             (format) =>
                 format.ext === 'mp4' &&
@@ -207,7 +215,7 @@ app.get('/api/facebook', async (req, res) => {
                 !format.url.includes('.m3u8')
         );
 
-        // Filtrar o melhor formato de áudio
+        // Filtrar melhor formato de áudio
         const audioFormat = videoInfo.formats.find(
             (format) =>
                 format.ext === 'm4a' ||
@@ -238,7 +246,9 @@ app.get('/api/facebook', async (req, res) => {
     }
 });
 
-// Rota para Pinterest
+/**
+ * Rota para Pinterest
+ */
 app.get('/api/pinterest', async (req, res) => {
     const { url } = req.query;
 
@@ -305,7 +315,7 @@ app.get('/api/pinterest', async (req, res) => {
             return res.status(500).json({ error: 'Nenhuma mídia encontrada.' });
         }
 
-        // Filtrar imagens muito pequenas (largura ou altura < 200px), exceto se forem as únicas
+        // Filtrar imagens muito pequenas (largura/altura < 200px), exceto se forem as únicas
         const minSize = 200;
         imageUrls = imageUrls.filter((url) => {
             const match = url.match(/\/(\d{2,4})x(\d{2,4})\//);
@@ -314,16 +324,16 @@ app.get('/api/pinterest', async (req, res) => {
                 const height = parseInt(match[2], 10);
                 return width >= minSize && height >= minSize;
             }
-            return true; // Manter URLs que não têm dimensões na URL
+            return true; // Manter URLs sem info de dimensões
         });
 
-        // Garantir que ao menos uma imagem seja mantida
+        // Se todas foram filtradas, tentar manter pelo menos uma
         if (!imageUrls.length) {
             console.warn('⚠️ Pinterest: Todas as imagens filtradas eram muito pequenas.');
             imageUrls = Array.from(document.querySelectorAll('img[src]')).map((img) => img.src);
         }
 
-        // Ordenar imagens por resolução
+        // Ordenar imagens por resolução (maior para menor)
         imageUrls.sort((a, b) => {
             const getRes = (url) => {
                 const match = url.match(/\/(\d{2,4})x(\d{2,4})\//);
@@ -351,7 +361,9 @@ app.get('/api/pinterest', async (req, res) => {
     }
 });
 
-// Rota genérica para outros serviços (Instagram, Twitter, etc.)
+/**
+ * Rota genérica (Instagram, Twitter, etc.)
+ */
 app.get('/api/others', async (req, res) => {
     const { url } = req.query;
 
@@ -375,7 +387,9 @@ app.get('/api/others', async (req, res) => {
     }
 });
 
-// Função para limpar arquivos antigos
+/**
+ * Função para limpar arquivos antigos
+ */
 const cleanupTempFiles = () => {
     fs.readdir(tmpFolder, (err, folders) => {
         if (err) return console.error('❌ Erro ao listar diretórios temporários:', err);
@@ -388,7 +402,7 @@ const cleanupTempFiles = () => {
             fs.readdir(folderPath, (err, files) => {
                 if (err) {
                     if (err.code === 'ENOTDIR') {
-                        // Caso encontre um arquivo em vez de pasta, tenta remover
+                        // Se não for pasta, tenta remover diretamente
                         fs.unlink(folderPath, (unlinkErr) => {
                             if (!unlinkErr) console.log('🗑️ Arquivo órfão removido:', folderPath);
                         });
@@ -402,7 +416,7 @@ const cleanupTempFiles = () => {
                     fs.stat(filePath, (err, stats) => {
                         if (err) return console.error('❌ Erro ao obter informações do arquivo:', err);
                         if (now - stats.mtimeMs > 10 * 60 * 1000) {
-                            // Arquivos mais antigos que 10 minutos
+                            // Se tiver mais de 10 minutos
                             fs.unlink(filePath, (err) => {
                                 if (err) return console.error('❌ Erro ao remover arquivo temporário:', err);
                                 console.log('🗑️ Arquivo temporário removido:', filePath);
@@ -415,10 +429,12 @@ const cleanupTempFiles = () => {
     });
 };
 
-// Limpar arquivos antigos a cada 10 minutos
+// Executar limpeza a cada 10 minutos
 setInterval(cleanupTempFiles, 10 * 60 * 1000);
 
-// Rota para conversão
+/**
+ * Rota para conversão e sobrescrita de arquivo (mp3, por exemplo)
+ */
 app.get('/api/convert/:userId', async (req, res) => {
     const { userId } = req.params;
     const { url, format = 'mp3' } = req.query;
@@ -443,7 +459,7 @@ app.get('/api/convert/:userId', async (req, res) => {
         }
         console.log('✔️ Cookies: Arquivo de cookies carregado.');
 
-        // Obter informações do vídeo
+        // Obter informações do vídeo/áudio
         const videoInfo = await youtubedl(url, {
             dumpSingleJson: true,
             format: 'bestaudio/best',
@@ -461,16 +477,18 @@ app.get('/api/convert/:userId', async (req, res) => {
         }
         console.log('✔️ URL de áudio direto obtida:', audioUrl);
 
-        // Caminho para o arquivo convertido
+        // Definir pasta de usuário
         const userFolder = path.join(tmpFolder, userId);
         if (!fs.existsSync(userFolder)) fs.mkdirSync(userFolder);
 
+        // Caminho do arquivo de saída
         const tempFilePath = path.join(userFolder, `converted.${format}`);
 
-        // Executar a conversão com ffmpeg
+        // Executar a conversão com ffmpeg, forçando a sobrescrita (-y)
         console.log('🔄 Executando conversão com ffmpeg...');
         const command = [
             'ffmpeg',
+            '-y', // <--- Force overwrite
             '-i',
             audioUrl,
             '-codec:a',
@@ -502,10 +520,10 @@ app.get('/api/convert/:userId', async (req, res) => {
     }
 });
 
-// Rota para servir arquivos temporários
+// Servir arquivos temporários
 app.use('/:userId', express.static(tmpFolder));
 
-// Inicia o servidor
+// Iniciar o servidor
 app.listen(port, () => {
     console.log(`Servidor rodando em http://localhost:${port}`);
 });
