@@ -49,87 +49,82 @@ app.get('/api/youtube', async (req, res) => {
   const { url } = req.query;
 
   if (!url) {
-    console.error('❌ YouTube: URL não fornecida.');
-    return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
+      console.error('❌ YouTube: URL não fornecida.');
+      return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
   }
 
   try {
-    console.log('🔄 YouTube: Processando URL:', url);
+      console.log('🔄 YouTube: Processando URL:', url);
 
-    // Configurar servidores DNS personalizados
-    dns.setServers(['1.1.1.1', '8.8.8.8']); // Cloudflare e Google DNS
-    console.log('✔️ DNS: Resolvers configurados para 1.1.1.1 e 8.8.8.8');
+      // Configurar servidores DNS personalizados
+      dns.setServers(['1.1.1.1', '8.8.8.8']); // Cloudflare e Google DNS
+      console.log('✔️ DNS: Resolvers configurados para 1.1.1.1 e 8.8.8.8');
 
-    // Testar resolução DNS
-    dns.lookup('youtube.com', (err, address, family) => {
-      if (err) {
-        console.error('❌ DNS: Falha ao resolver youtube.com', err.message);
-        return res.status(500).json({ error: 'Falha na resolução de DNS.' });
-      } else {
-        console.log(`✔️ DNS: Resolução bem-sucedida - ${address}, IPv${family}`);
-      }
-    });
+      // Testar resolução DNS
+      dns.lookup('youtube.com', (err, address, family) => {
+          if (err) {
+              console.error('❌ DNS: Falha ao resolver youtube.com', err.message);
+              return res.status(500).json({ error: 'Falha na resolução de DNS.' });
+          } else {
+              console.log(`✔️ DNS: Resolução bem-sucedida - ${address}, IPv${family}`);
+          }
+      });
 
-    // Obter informações detalhadas do vídeo com cabeçalhos e cookies
-    const videoInfo = await youtubedl(url, {
-      dumpSingleJson: true,
-      format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]', // Prioriza MP4 com áudio embutido
-      cookies: './cookies.txt', // Caminho para o arquivo de cookies
-      addHeader: [
-        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept-Language: en-US,en;q=0.9',
-        'Referer: https://www.youtube.com/',
-      ],
-    });
+      // Obter informações detalhadas do vídeo com cabeçalhos e cookies
+      const videoInfo = await youtubedl(url, {
+          dumpSingleJson: true,
+          format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]', // Prioriza MP4 com áudio embutido
+          cookies: './cookies.txt', // Caminho para o arquivo de cookies
+          addHeader: [
+              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+              'Accept-Language: en-US,en;q=0.9',
+              'Referer: https://www.youtube.com/',
+          ],
+      });
 
-    console.log('✔️ YouTube: Dados obtidos:', videoInfo);
+      console.log('✔️ YouTube: Dados obtidos:', videoInfo);
 
-    // Filtrar o melhor formato MP4 com áudio e vídeo integrados
-    const videoFormat = videoInfo.formats.find(
-      (format) =>
-        format.ext === 'mp4' &&
-        format.acodec !== 'none' &&
-        format.vcodec !== 'none' &&
-        !format.url.includes('.m3u8')
-    );
+      // Filtrar o melhor formato MP4 com áudio e vídeo integrados
+      const videoFormat = videoInfo.formats.find(
+          (format) =>
+              format.ext === 'mp4' &&
+              format.acodec !== 'none' &&
+              format.vcodec !== 'none' &&
+              !format.url.includes('.m3u8')
+      );
 
-    // Filtrar o melhor formato MP3 ou equivalente em áudio puro
-    const audioFormat = videoInfo.formats.find(
-      (format) =>
-        format.ext === 'mp3' ||
-        (format.acodec !== 'none' && format.vcodec === 'none' && !format.url.includes('.m3u8'))
-    );
+      // Filtrar o melhor formato MP3 ou equivalente em áudio puro
+      const audioFormat = videoInfo.formats.find(
+          (format) =>
+              format.ext === 'mp3' ||
+              (format.acodec !== 'none' && format.vcodec === 'none' && !format.url.includes('.m3u8'))
+      );
 
-    // Extrair o tamanho aproximado do vídeo
-    const videoSize = videoFormat ? videoFormat.filesize || videoFormat.filesize_approx : null;
+      // Extrair o tamanho aproximado do vídeo
+      const videoSize = videoFormat ? videoFormat.filesize || videoFormat.filesize_approx : null;
 
-    // Formatar a resposta
-    const formattedData = {
-      title: videoInfo.title || 'Título não disponível',
-      duration: videoInfo.duration
-        ? `${Math.floor(videoInfo.duration / 60)} min ${videoInfo.duration % 60} sec`
-        : 'Duração não disponível',
-      uploader: videoInfo.uploader || 'Uploader desconhecido',
-      views: videoInfo.view_count || 'N/A',
-      thumbnail: videoInfo.thumbnail || '',
-      mp4_link: videoFormat ? videoFormat.url : 'MP4 não disponível',
-      mp3_link: audioFormat ? audioFormat.url : 'MP3 não disponível',
-      filesize: videoSize, // Adiciona o tamanho aproximado do vídeo
-    };
+      // Formatar a resposta
+      const formattedData = {
+          title: videoInfo.title || 'Título não disponível',
+          duration: videoInfo.duration
+              ? `${Math.floor(videoInfo.duration / 60)} min ${videoInfo.duration % 60} sec`
+              : 'Duração não disponível',
+          uploader: videoInfo.uploader || 'Uploader desconhecido',
+          views: videoInfo.view_count || 'N/A',
+          thumbnail: videoInfo.thumbnail || '',
+          mp4_link: videoFormat ? videoFormat.url : 'MP4 não disponível',
+          mp3_link: audioFormat ? audioFormat.url : 'MP3 não disponível',
+          filesize: videoSize, // Adiciona o tamanho aproximado do vídeo
+      };
 
-    console.log('✔️ YouTube: Dados formatados:', formattedData);
+      console.log('✔️ YouTube: Dados formatados:', formattedData);
 
-    // Retornar dados formatados com os dados brutos
-    return res.json({
-      ...formattedData, // Inclui os dados formatados no início
-      raw_data: videoInfo // Adiciona os dados brutos na parte inferior
-    });
+      return res.json(formattedData);
   } catch (error) {
-    console.error('❌ YouTube: Erro:', error.message);
-    return res.status(500).json({ error: 'Erro ao processar o link do YouTube.' });
+      console.error('❌ YouTube: Erro:', error.message);
+      return res.status(500).json({ error: 'Erro ao processar o link do YouTube.' });
   }
 });
-
 
 
 
