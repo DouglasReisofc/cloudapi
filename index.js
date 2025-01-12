@@ -59,16 +59,14 @@ app.get('/api/youtube', async (req, res) => {
   try {
       console.log('🔄 YouTube: Processando URL:', url);
 
-      // Substitua pelas suas credenciais
-      const username = 'deborah.costa.kramer@gmail.com'; // Email da conta do YouTube
-      const password = 'Shinobi7766'; // Senha da conta do YouTube
+      // Configuração do proxy
+      const proxy = 'http://18.228.149.161:80';
 
       // Obter informações do vídeo
       const videoInfo = await youtubedl(url, {
           dumpSingleJson: true,
           format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-          username: username, // Adiciona o email
-          password: password, // Adiciona a senha
+          proxy: proxy, // Adiciona o proxy
           addHeader: [
               'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
               'Accept-Language: en-US,en;q=0.9',
