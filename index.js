@@ -374,7 +374,33 @@ app.get('/api/others', async (req, res) => {
 });
 
 
-app.get('/api/convert', async (req, res) => {
+// Função para limpar arquivos antigos
+const cleanupTempFiles = () => {
+  fs.readdir(tempFolder, (err, files) => {
+      if (err) return console.error('❌ Erro ao listar arquivos temporários:', err);
+
+      const now = Date.now();
+      files.forEach((file) => {
+          const filePath = path.join(tempFolder, file);
+          fs.stat(filePath, (err, stats) => {
+              if (err) return console.error('❌ Erro ao obter informações do arquivo:', err);
+              if (now - stats.mtimeMs > 10 * 60 * 1000) { // Arquivos mais antigos que 10 minutos
+                  fs.unlink(filePath, (err) => {
+                      if (err) return console.error('❌ Erro ao remover arquivo temporário:', err);
+                      console.log('🗑️ Arquivo temporário removido:', filePath);
+                  });
+              }
+          });
+      });
+  });
+};
+
+// Limpar arquivos antigos a cada 10 minutos
+setInterval(cleanupTempFiles, 10 * 60 * 1000);
+
+// Rota para conversão
+app.get('/api/convert/:userId', async (req, res) => {
+  const { userId } = req.params;
   const { url, format = 'mp3' } = req.query;
 
   if (!url) {
@@ -389,7 +415,7 @@ app.get('/api/convert', async (req, res) => {
       dns.setServers(['1.1.1.1', '8.8.8.8']); // Cloudflare e Google DNS
       console.log('✔️ DNS: Resolvers configurados para 1.1.1.1 e 8.8.8.8');
 
-      // Caminho absoluto para o arquivo de cookies
+      // Verificar cookies
       const cookiesPath = path.resolve('./cookies.txt');
       if (!fs.existsSync(cookiesPath)) {
           console.error('❌ Cookies: Arquivo cookies.txt não encontrado.');
@@ -397,8 +423,7 @@ app.get('/api/convert', async (req, res) => {
       }
       console.log('✔️ Cookies: Arquivo de cookies carregado.');
 
-      // Obter a URL de áudio direto usando `youtubedl`
-      console.log('🔄 Obtendo URL de áudio direto com youtubedl...');
+      // Obter informações do vídeo
       const videoInfo = await youtubedl(url, {
           dumpSingleJson: true,
           format: 'bestaudio/best',
@@ -409,17 +434,20 @@ app.get('/api/convert', async (req, res) => {
           ],
       });
 
-      const audioUrl = videoInfo.url || null;
+      const audioUrl = videoInfo.url;
       if (!audioUrl) {
           console.error('❌ Conversão: Não foi possível obter a URL do áudio.');
           return res.status(500).json({ error: 'Não foi possível obter a URL do áudio.' });
       }
       console.log('✔️ URL de áudio direto obtida:', audioUrl);
 
-      // Caminho temporário para salvar o arquivo convertido
-      const tempFilePath = path.join('./tmp', `${Date.now()}.${format}`);
+      // Caminho para o arquivo convertido
+      const userFolder = path.join(tempFolder, userId);
+      if (!fs.existsSync(userFolder)) fs.mkdirSync(userFolder);
 
-      // Executar a conversão com `ffmpeg`
+      const tempFilePath = path.join(userFolder, `converted.${format}`);
+
+      // Executar a conversão com ffmpeg
       console.log('🔄 Executando conversão com ffmpeg...');
       const command = [
           'ffmpeg',
@@ -432,7 +460,6 @@ app.get('/api/convert', async (req, res) => {
           tempFilePath,
       ];
 
-      const { spawn } = require('child_process');
       const process = spawn(command[0], command.slice(1));
 
       process.stderr.on('data', (data) => {
@@ -442,14 +469,8 @@ app.get('/api/convert', async (req, res) => {
       process.on('close', (code) => {
           if (code === 0) {
               console.log('✔️ Conversão concluída com sucesso:', tempFilePath);
-              return res.download(tempFilePath, (err) => {
-                  if (!err) {
-                      fs.unlinkSync(tempFilePath);
-                      console.log('✔️ Arquivo temporário removido:', tempFilePath);
-                  } else {
-                      console.error('❌ Erro ao enviar o arquivo:', err.message);
-                  }
-              });
+              const fileUrl = `${req.protocol}://${req.get('host')}/${userId}/converted.${format}`;
+              return res.json({ audioUrl: fileUrl });
           } else {
               console.error('❌ Conversão: Processo de conversão falhou com código:', code);
               return res.status(500).json({ error: 'Falha no processo de conversão com ffmpeg.' });
@@ -460,6 +481,10 @@ app.get('/api/convert', async (req, res) => {
       return res.status(500).json({ error: 'Erro inesperado durante a conversão.' });
   }
 });
+
+// Rota para servir arquivos temporários
+app.use('/:userId', express.static(tempFolder));
+
 
 
 
