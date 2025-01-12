@@ -382,65 +382,81 @@ app.get('/api/convert', async (req, res) => {
       return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
   }
 
-  if (!['mp3', 'mp4'].includes(format)) {
-      console.error('❌ Conversão: Formato inválido.');
-      return res.status(400).json({ error: 'O formato deve ser "mp3" ou "mp4".' });
-  }
-
   try {
       console.log(`🔄 Conversão: Processando URL para ${format}:`, url);
 
-      // Obter informações do vídeo diretamente da URL do YouTube
-      const videoInfo = await youtubedl(url, {
-          dumpSingleJson: true,
-          format: 'bestaudio[ext=webm]/bestaudio/best[ext=mp4]/best',
-          addHeader: [
-              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-              'Referer: https://www.youtube.com/',
-          ],
-      });
+      // Configurar servidores DNS personalizados
+      dns.setServers(['1.1.1.1', '8.8.8.8']); // Cloudflare e Google DNS
+      console.log('✔️ DNS: Resolvers configurados para 1.1.1.1 e 8.8.8.8');
 
-      console.log('✔️ Dados obtidos do vídeo:', videoInfo);
+      // Caminho absoluto para o arquivo de cookies
+      const cookiesPath = path.resolve('./cookies.txt');
 
-      const audioFormat = videoInfo.formats.find(
-          (format) => format.acodec !== 'none' && format.vcodec === 'none'
-      );
-
-      const audioUrl = audioFormat?.url;
-      if (!audioUrl) {
-          console.error('❌ Nenhum link de áudio encontrado.');
-          return res.status(404).json({ error: 'Áudio não encontrado no link fornecido.' });
+      // Verificar se o arquivo de cookies existe
+      if (!fs.existsSync(cookiesPath)) {
+          console.error('❌ Cookies: Arquivo cookies.txt não encontrado.');
+          return res.status(500).json({ error: 'Arquivo de cookies não encontrado.' });
       }
 
-      console.log('✔️ Link completo do áudio:', audioUrl);
+      console.log('✔️ Cookies: Arquivo de cookies carregado.');
 
-      const outputFilename = `${Date.now()}.${format}`;
-      const outputPath = path.join(tmpFolder, outputFilename);
-
-      console.log('🔄 Baixando e convertendo o arquivo...');
-
-      const ffmpegCommand =
-          format === 'mp3'
-              ? `ffmpeg -y -i "${audioUrl}" -codec:a libmp3lame -q:a 2 "${outputPath}"`
-              : `ffmpeg -y -i "${audioUrl}" -c:v libx264 -c:a aac "${outputPath}"`;
-
-      exec(ffmpegCommand, (error, stdout, stderr) => {
-          if (error) {
-              console.error('❌ Conversão: Erro ao processar o arquivo.', error.message);
-              return res.status(500).json({ error: 'Erro ao converter o arquivo.' });
+      // Testar resolução DNS
+      dns.lookup('youtube.com', (err, address, family) => {
+          if (err) {
+              console.error('❌ DNS: Falha ao resolver youtube.com', err.message);
+              return res.status(500).json({ error: 'Falha na resolução de DNS.' });
+          } else {
+              console.log(`✔️ DNS: Resolução bem-sucedida - ${address}, IPv${family}`);
           }
+      });
 
-          console.log('✔️ Conversão concluída com sucesso.');
+      // Caminho temporário para salvar o arquivo convertido
+      const tempFilePath = path.join('./tmp', `${Date.now()}.${format}`);
 
-          // URL pública para o arquivo convertido
-          const publicUrl = `http://localhost:${port}/tmp/${outputFilename}`;
-          return res.json({ message: `Arquivo convertido para ${format} com sucesso.`, url: publicUrl });
+      // Comando de conversão
+      const command = [
+          'ffmpeg',
+          '-i',
+          url,
+          '-codec:a',
+          format === 'mp3' ? 'libmp3lame' : 'aac',
+          '-q:a',
+          '2',
+          tempFilePath,
+      ];
+
+      // Executar a conversão
+      const { spawn } = require('child_process');
+      const process = spawn(command[0], command.slice(1));
+
+      process.on('error', (error) => {
+          console.error('❌ Conversão: Erro no processo de conversão.', error.message);
+          return res.status(500).json({ error: 'Erro no processo de conversão.' });
+      });
+
+      process.on('close', (code) => {
+          if (code === 0) {
+              console.log('✔️ Conversão: Arquivo convertido com sucesso:', tempFilePath);
+              return res.download(tempFilePath, (err) => {
+                  if (!err) {
+                      // Remover o arquivo temporário após o download
+                      fs.unlinkSync(tempFilePath);
+                      console.log('✔️ Arquivo temporário removido:', tempFilePath);
+                  } else {
+                      console.error('❌ Erro ao enviar o arquivo:', err.message);
+                  }
+              });
+          } else {
+              console.error('❌ Conversão: Processo de conversão falhou com código:', code);
+              return res.status(500).json({ error: 'Falha no processo de conversão.' });
+          }
       });
   } catch (error) {
       console.error('❌ Conversão: Erro inesperado.', error.message);
-      return res.status(500).json({ error: 'Erro ao processar o arquivo.' });
+      return res.status(500).json({ error: 'Erro inesperado durante a conversão.' });
   }
 });
+
 
 
 
