@@ -1,14 +1,15 @@
 const express = require('express');
-const { exec, spawn } = require('child_process'); // Para executar comandos do FFmpeg (exec/spawn)
-const dns = require('dns');
+const { exec, spawn } = require('child_process');
 const axios = require('axios');
-const youtubedl = require('youtube-dl-exec');
+const youtubedl = require('youtube-dl-exec'); // Biblioteca principal para download/extrair informações
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 const path = require('path');
 
+// Pasta temporária para armazenar arquivos de conversão
 const tmpFolder = './tmp';
 
+// Cria a pasta temporária se não existir
 if (!fs.existsSync(tmpFolder)) {
     fs.mkdirSync(tmpFolder);
     console.log('📁 Pasta temporária criada:', tmpFolder);
@@ -48,7 +49,8 @@ app.get('/api/tiktok', async (req, res) => {
 });
 
 /**
- * Rota para YouTube
+ * Rota para YouTube (usando youtube-dl-exec)
+ * Aceita cookies.txt para casos de restrição/idade.
  */
 app.get('/api/youtube', async (req, res) => {
     const { url } = req.query;
@@ -61,27 +63,19 @@ app.get('/api/youtube', async (req, res) => {
     try {
         console.log('🔄 YouTube: Processando URL:', url);
 
-        // Configurar servidores DNS personalizados
-        dns.setServers(['1.1.1.1', '8.8.8.8']); // Cloudflare e Google DNS
-        console.log('✔️ DNS: Resolvers configurados para 1.1.1.1 e 8.8.8.8');
+        // Verifica se existe o arquivo cookies.txt
+        const cookiesPath = path.resolve('./cookies.txt');
+        if (!fs.existsSync(cookiesPath)) {
+            console.warn('⚠️ YouTube: Arquivo cookies.txt não encontrado. Continuando sem cookies...');
+        }
 
-        // Testar resolução DNS
-        dns.lookup('youtube.com', (err, address, family) => {
-            if (err) {
-                console.error('❌ DNS: Falha ao resolver youtube.com', err.message);
-                return res.status(500).json({ error: 'Falha na resolução de DNS.' });
-            } else {
-                console.log(`✔️ DNS: Resolução bem-sucedida - ${address}, IPv${family}`);
-            }
-        });
-
-        // Obter informações detalhadas do vídeo com cabeçalhos e cookies
+        // Obter informações do vídeo
         const videoInfo = await youtubedl(url, {
             dumpSingleJson: true,
-            format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]', // Prioriza MP4
-            cookies: './cookies.txt', // Caminho para o arquivo de cookies
+            format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+            cookies: fs.existsSync(cookiesPath) ? './cookies.txt' : undefined,
             addHeader: [
-                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                 'Accept-Language: en-US,en;q=0.9',
                 'Referer: https://www.youtube.com/',
             ],
@@ -89,7 +83,7 @@ app.get('/api/youtube', async (req, res) => {
 
         console.log('✔️ YouTube: Dados obtidos:', videoInfo);
 
-        // Filtrar o melhor formato MP4 com áudio e vídeo integrados
+        // Filtra o melhor formato MP4
         const videoFormat = videoInfo.formats.find(
             (format) =>
                 format.ext === 'mp4' &&
@@ -97,18 +91,16 @@ app.get('/api/youtube', async (req, res) => {
                 format.vcodec !== 'none' &&
                 !format.url.includes('.m3u8')
         );
-
-        // Filtrar o melhor formato MP3 ou áudio puro
+        // Tenta encontrar MP3 ou áudio puro
         const audioFormat = videoInfo.formats.find(
             (format) =>
                 format.ext === 'mp3' ||
                 (format.acodec !== 'none' && format.vcodec === 'none' && !format.url.includes('.m3u8'))
         );
 
-        // Tamanho aproximado do vídeo
-        const videoSize = videoFormat ? videoFormat.filesize || videoFormat.filesize_approx : null;
+        // Tamanho aproximado do vídeo (pode ser nulo)
+        const videoSize = videoFormat ? (videoFormat.filesize || videoFormat.filesize_approx) : null;
 
-        // Formatar a resposta
         const formattedData = {
             title: videoInfo.title || 'Título não disponível',
             duration: videoInfo.duration
@@ -119,15 +111,106 @@ app.get('/api/youtube', async (req, res) => {
             thumbnail: videoInfo.thumbnail || '',
             mp4_link: videoFormat ? videoFormat.url : 'MP4 não disponível',
             mp3_link: audioFormat ? audioFormat.url : 'MP3 não disponível',
-            filesize: videoSize, // Tamanho aproximado
+            filesize: videoSize,
         };
 
         console.log('✔️ YouTube: Dados formatados:', formattedData);
-
         return res.json(formattedData);
     } catch (error) {
         console.error('❌ YouTube: Erro:', error.message);
         return res.status(500).json({ error: 'Erro ao processar o link do YouTube.' });
+    }
+});
+
+/**
+ * Rota para Instagram
+ */
+app.get('/api/instagram', async (req, res) => {
+    const { url } = req.query;
+
+    if (!url) {
+        return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
+    }
+
+    try {
+        console.log('🔄 Instagram: Processando URL:', url);
+
+        // Se tiver cookies do Instagram em 'instagram.txt'
+        const cookiesPath = path.resolve('./instagram.txt');
+        const hasCookies = fs.existsSync(cookiesPath);
+
+        // Extrai vídeo ou imagem usando youtubedl
+        const videoInfo = await youtubedl(url, {
+            dumpSingleJson: true,
+            cookies: hasCookies ? './instagram.txt' : undefined,
+            addHeader: [
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Accept-Language: en-US,en;q=0.9',
+                'Referer: https://www.instagram.com/',
+            ],
+            // Tenta extrair vídeo MP4:
+            format: 'best[ext=mp4]', 
+        });
+
+        // Tenta achar vídeo MP4
+        const videoFormat = videoInfo.formats?.find(
+            (format) =>
+                format.ext === 'mp4' &&
+                format.acodec !== 'none' &&
+                format.vcodec !== 'none'
+        );
+        // Tenta achar áudio (opcional)
+        const audioFormat = videoInfo.formats?.find((format) => format.ext === 'm4a');
+
+        if (videoFormat) {
+            // Retorna como vídeo
+            return res.json({
+                id: videoInfo.id || null,
+                title: videoInfo.title || 'Sem Título',
+                mp4_link: videoFormat.url,
+                mp3_link: audioFormat?.url || null,
+            });
+        } else {
+            // Pode ser que seja imagem -> fallback
+            const imageItems = [];
+
+            // 1) Tenta requested_downloads (às vezes tem .jpg)
+            if (videoInfo.requested_downloads) {
+                for (const item of videoInfo.requested_downloads) {
+                    if (item.ext === 'jpg' || item.ext === 'jpeg') {
+                        imageItems.push(item.url);
+                    }
+                }
+            }
+
+            // 2) Se não achou nada, faz scraping
+            if (!imageItems.length) {
+                const resp = await axios.get(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    },
+                });
+                const dom = new JSDOM(resp.data);
+                const document = dom.window.document;
+                const foundImages = Array.from(document.querySelectorAll('img[src]')).map((img) => img.src);
+                imageItems.push(...foundImages);
+            }
+
+            if (imageItems.length) {
+                return res.json({
+                    type: 'images',
+                    images: imageItems,
+                });
+            }
+
+            // Se nada encontrado
+            return res.status(404).json({
+                error: 'Não foi possível extrair vídeo ou imagem do Instagram.'
+            });
+        }
+    } catch (error) {
+        console.error('❌ Instagram: Erro:', error.message);
+        return res.status(500).json({ error: 'Erro ao processar o link do Instagram.' });
     }
 });
 
@@ -145,7 +228,6 @@ app.get('/api/kwai', async (req, res) => {
     try {
         console.log('🔄 Kwai: Processando URL:', url);
 
-        // Obter informações detalhadas do vídeo
         const videoInfo = await youtubedl(url, {
             dumpSingleJson: true,
             format: 'best[ext=mp4]',
@@ -153,12 +235,10 @@ app.get('/api/kwai', async (req, res) => {
 
         console.log('✔️ Kwai: Dados obtidos:', videoInfo);
 
-        // Extrair nome do criador e handle
         const title = videoInfo.title || '';
-        const uploaderName = title.split('(')[0].trim(); // Antes do '('
-        const uploaderHandle = title.match(/\((.*?)\)/)?.[1] || 'Desconhecido'; // Dentro dos parênteses
+        const uploaderName = title.split('(')[0].trim();
+        const uploaderHandle = title.match(/\((.*?)\)/)?.[1] || 'Desconhecido';
 
-        // Formatar a resposta
         const formattedData = {
             id: videoInfo.id || 'ID não disponível',
             title: videoInfo.title || 'Título não disponível',
@@ -176,7 +256,6 @@ app.get('/api/kwai', async (req, res) => {
         };
 
         console.log('✔️ Kwai: Dados formatados:', formattedData);
-
         return res.json(formattedData);
     } catch (error) {
         console.error('❌ Kwai: Erro:', error.message);
@@ -198,7 +277,6 @@ app.get('/api/facebook', async (req, res) => {
     try {
         console.log('🔄 Facebook: Processando URL:', url);
 
-        // Obter informações detalhadas do vídeo
         const videoInfo = await youtubedl(url, {
             dumpSingleJson: true,
             format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
@@ -206,7 +284,6 @@ app.get('/api/facebook', async (req, res) => {
 
         console.log('✔️ Facebook: Dados obtidos:', videoInfo);
 
-        // Filtrar melhor formato MP4 (áudio + vídeo)
         const videoFormat = videoInfo.formats.find(
             (format) =>
                 format.ext === 'mp4' &&
@@ -214,15 +291,12 @@ app.get('/api/facebook', async (req, res) => {
                 format.vcodec !== 'none' &&
                 !format.url.includes('.m3u8')
         );
-
-        // Filtrar melhor formato de áudio
         const audioFormat = videoInfo.formats.find(
             (format) =>
                 format.ext === 'm4a' ||
                 (format.acodec !== 'none' && format.vcodec === 'none' && !format.url.includes('.m3u8'))
         );
 
-        // Formatar a resposta
         const formattedData = {
             id: videoInfo.id || 'ID não disponível',
             title: videoInfo.title || 'Título não disponível',
@@ -238,7 +312,6 @@ app.get('/api/facebook', async (req, res) => {
         };
 
         console.log('✔️ Facebook: Dados formatados:', formattedData);
-
         return res.json(formattedData);
     } catch (error) {
         console.error('❌ Facebook: Erro:', error.message);
@@ -260,7 +333,7 @@ app.get('/api/pinterest', async (req, res) => {
     try {
         console.log('🔄 Pinterest: Processando URL:', url);
 
-        // Tentar obter informações do vídeo com yt-dlp
+        // Primeiro, tenta extrair vídeo via youtubedl
         let videoInfo;
         try {
             videoInfo = await youtubedl(url, {
@@ -268,7 +341,7 @@ app.get('/api/pinterest', async (req, res) => {
                 format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
             });
 
-            console.log('✔️ Pinterest: Dados de vídeo obtidos via yt-dlp:', videoInfo);
+            console.log('✔️ Pinterest: Dados de vídeo obtidos (yt-dlp):', videoInfo);
 
             const videoFormat = videoInfo.formats.find(
                 (format) =>
@@ -278,6 +351,7 @@ app.get('/api/pinterest', async (req, res) => {
                     !format.url.includes('.m3u8')
             );
 
+            // Se encontrou vídeo, retorna
             const formattedVideoData = {
                 title: videoInfo.title || 'Título não disponível',
                 description: videoInfo.description || 'Descrição não disponível',
@@ -291,13 +365,10 @@ app.get('/api/pinterest', async (req, res) => {
 
             return res.json(formattedVideoData);
         } catch (error) {
-            console.warn(
-                '❌ Pinterest: Falha ao obter dados do vídeo com yt-dlp. Tentando buscar imagens...',
-                error.message
-            );
+            console.warn('❌ Pinterest: Falha ao obter vídeo. Tentando buscar imagens...', error.message);
         }
 
-        // Caso yt-dlp não retorne dados, buscar imagens via scraping
+        // Caso não seja vídeo, faz scraping de imagens
         const response = await axios.get(url, {
             headers: {
                 'User-Agent':
@@ -307,7 +378,6 @@ app.get('/api/pinterest', async (req, res) => {
 
         const dom = new JSDOM(response.data);
         const document = dom.window.document;
-
         let imageUrls = Array.from(document.querySelectorAll('img[src]')).map((img) => img.src);
 
         if (!imageUrls.length) {
@@ -315,25 +385,24 @@ app.get('/api/pinterest', async (req, res) => {
             return res.status(500).json({ error: 'Nenhuma mídia encontrada.' });
         }
 
-        // Filtrar imagens muito pequenas (largura/altura < 200px), exceto se forem as únicas
+        // Filtra imagens pequenas
         const minSize = 200;
-        imageUrls = imageUrls.filter((url) => {
-            const match = url.match(/\/(\d{2,4})x(\d{2,4})\//);
+        imageUrls = imageUrls.filter((imgUrl) => {
+            const match = imgUrl.match(/\/(\d{2,4})x(\d{2,4})\//);
             if (match) {
                 const width = parseInt(match[1], 10);
                 const height = parseInt(match[2], 10);
                 return width >= minSize && height >= minSize;
             }
-            return true; // Manter URLs sem info de dimensões
+            return true;
         });
 
-        // Se todas foram filtradas, tentar manter pelo menos uma
         if (!imageUrls.length) {
             console.warn('⚠️ Pinterest: Todas as imagens filtradas eram muito pequenas.');
             imageUrls = Array.from(document.querySelectorAll('img[src]')).map((img) => img.src);
         }
 
-        // Ordenar imagens por resolução (maior para menor)
+        // Ordena por resolução (maior para menor)
         imageUrls.sort((a, b) => {
             const getRes = (url) => {
                 const match = url.match(/\/(\d{2,4})x(\d{2,4})\//);
@@ -352,8 +421,7 @@ app.get('/api/pinterest', async (req, res) => {
             image_links: imageUrls,
         };
 
-        console.log('✔️ Pinterest: Dados de imagem formatados  :', formattedImageData);
-
+        console.log('✔️ Pinterest: Dados de imagem formatados:', formattedImageData);
         return res.json(formattedImageData);
     } catch (error) {
         console.error('❌ Pinterest: Erro ao processar o link.', error.message);
@@ -362,7 +430,7 @@ app.get('/api/pinterest', async (req, res) => {
 });
 
 /**
- * Rota genérica (Instagram, Twitter, etc.)
+ * Rota genérica para outras plataformas (Twitter, etc.)
  */
 app.get('/api/others', async (req, res) => {
     const { url } = req.query;
@@ -388,7 +456,7 @@ app.get('/api/others', async (req, res) => {
 });
 
 /**
- * Função para limpar arquivos antigos
+ * Função para limpar arquivos antigos (mais de 10 minutos)
  */
 const cleanupTempFiles = () => {
     fs.readdir(tmpFolder, (err, folders) => {
@@ -401,8 +469,8 @@ const cleanupTempFiles = () => {
 
             fs.readdir(folderPath, (err, files) => {
                 if (err) {
+                    // Se não for pasta
                     if (err.code === 'ENOTDIR') {
-                        // Se não for pasta, tenta remover diretamente
                         fs.unlink(folderPath, (unlinkErr) => {
                             if (!unlinkErr) console.log('🗑️ Arquivo órfão removido:', folderPath);
                         });
@@ -415,8 +483,9 @@ const cleanupTempFiles = () => {
                     const filePath = path.join(folderPath, file);
                     fs.stat(filePath, (err, stats) => {
                         if (err) return console.error('❌ Erro ao obter informações do arquivo:', err);
+
+                        // Se o arquivo for mais antigo que 10 minutos
                         if (now - stats.mtimeMs > 10 * 60 * 1000) {
-                            // Se tiver mais de 10 minutos
                             fs.unlink(filePath, (err) => {
                                 if (err) return console.error('❌ Erro ao remover arquivo temporário:', err);
                                 console.log('🗑️ Arquivo temporário removido:', filePath);
@@ -428,12 +497,11 @@ const cleanupTempFiles = () => {
         });
     });
 };
-
-// Executar limpeza a cada 10 minutos
+// Executa a limpeza a cada 10 minutos
 setInterval(cleanupTempFiles, 10 * 60 * 1000);
 
 /**
- * Rota para conversão e sobrescrita de arquivo (mp3, por exemplo)
+ * Rota para conversão (bitrate reduzido, usando youtube-dl-exec + cookies)
  */
 app.get('/api/convert/:userId', async (req, res) => {
     const { userId } = req.params;
@@ -447,25 +515,18 @@ app.get('/api/convert/:userId', async (req, res) => {
     try {
         console.log(`🔄 Conversão: Processando URL para ${format}:`, url);
 
-        // Configurar servidores DNS personalizados
-        dns.setServers(['1.1.1.1', '8.8.8.8']); // Cloudflare e Google DNS
-        console.log('✔️ DNS: Resolvers configurados para 1.1.1.1 e 8.8.8.8');
-
-        // Verificar cookies
         const cookiesPath = path.resolve('./cookies.txt');
         if (!fs.existsSync(cookiesPath)) {
-            console.error('❌ Cookies: Arquivo cookies.txt não encontrado.');
-            return res.status(500).json({ error: 'Arquivo de cookies não encontrado.' });
+            console.warn('⚠️ Conversão: Arquivo cookies.txt não encontrado. Continuando sem cookies...');
         }
-        console.log('✔️ Cookies: Arquivo de cookies carregado.');
 
-        // Obter informações do vídeo/áudio
+        // Obter URL de áudio
         const videoInfo = await youtubedl(url, {
             dumpSingleJson: true,
             format: 'bestaudio/best',
-            cookies: cookiesPath,
+            cookies: fs.existsSync(cookiesPath) ? './cookies.txt' : undefined,
             addHeader: [
-                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                 'Accept-Language: en-US,en;q=0.9',
             ],
         });
@@ -477,24 +538,22 @@ app.get('/api/convert/:userId', async (req, res) => {
         }
         console.log('✔️ URL de áudio direto obtida:', audioUrl);
 
-        // Definir pasta de usuário
+        // Cria pasta do usuário, se não existir
         const userFolder = path.join(tmpFolder, userId);
         if (!fs.existsSync(userFolder)) fs.mkdirSync(userFolder);
 
-        // Caminho do arquivo de saída
+        // Caminho de saída do arquivo convertido
         const tempFilePath = path.join(userFolder, `converted.${format}`);
 
-        // Executar a conversão com ffmpeg, forçando a sobrescrita (-y)
-        console.log('🔄 Executando conversão com ffmpeg...');
+        console.log('🔄 Executando conversão com ffmpeg (64kbps)...');
         const command = [
             'ffmpeg',
-            '-y', // <--- Force overwrite
-            '-i',
-            audioUrl,
-            '-codec:a',
-            format === 'mp3' ? 'libmp3lame' : 'aac',
-            '-q:a',
-            '2',
+            '-y', // sobrescreve se já existir
+            '-i', audioUrl,
+            '-codec:a', format === 'mp3' ? 'libmp3lame' : 'aac',
+            '-b:a', '64k',
+            '-ac', '2',
+            '-ar', '44100',
             tempFilePath,
         ];
 
@@ -520,10 +579,10 @@ app.get('/api/convert/:userId', async (req, res) => {
     }
 });
 
-// Servir arquivos temporários
+// Rota para servir arquivos temporários após a conversão
 app.use('/:userId', express.static(tmpFolder));
 
-// Iniciar o servidor
+// Inicia o servidor
 app.listen(port, () => {
     console.log(`Servidor rodando em http://localhost:${port}`);
 });

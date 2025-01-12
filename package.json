@@ -12,6 +12,7 @@
   "dependencies": {
     "axios": "^1.7.8",
     "body-parser": "^1.20.3",
+    "btch-downloader": "^2.8.3",
     "dns": "^0.2.2",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
@@ -19,6 +20,7 @@
     "nodemon": "^3.1.9",
     "pg": "^8.13.1",
     "request-promise": "^4.2.6",
-    "youtube-dl-exec": "^3.0.12"
+    "youtube-dl-exec": "^3.0.12",
+    "ytdl-core": "^4.11.5"
   }
 }
