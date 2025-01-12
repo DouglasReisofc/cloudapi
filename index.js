@@ -123,96 +123,142 @@ app.get('/api/youtube', async (req, res) => {
 });
 
 /**
- * Rota para Instagram
+ * Rota para Instagram (melhor resolução + informações extras)
  */
 app.get('/api/instagram', async (req, res) => {
-    const { url } = req.query;
+  const { url } = req.query;
 
-    if (!url) {
-        return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
-    }
+  if (!url) {
+      return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
+  }
 
-    try {
-        console.log('🔄 Instagram: Processando URL:', url);
+  try {
+      console.log('🔄 Instagram: Processando URL:', url);
 
-        // Se tiver cookies do Instagram em 'instagram.txt'
-        const cookiesPath = path.resolve('./instagram.txt');
-        const hasCookies = fs.existsSync(cookiesPath);
+      // Se tiver cookies do Instagram em 'instagram.txt'
+      const cookiesPath = path.resolve('./instagram.txt');
+      const hasCookies = fs.existsSync(cookiesPath);
 
-        // Extrai vídeo ou imagem usando youtubedl
-        const videoInfo = await youtubedl(url, {
-            dumpSingleJson: true,
-            cookies: hasCookies ? './instagram.txt' : undefined,
-            addHeader: [
-                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'Accept-Language: en-US,en;q=0.9',
-                'Referer: https://www.instagram.com/',
-            ],
-            // Tenta extrair vídeo MP4:
-            format: 'best[ext=mp4]', 
-        });
+      // Extrai vídeo ou imagem usando youtubedl
+      const videoInfo = await youtubedl(url, {
+          dumpSingleJson: true,
+          cookies: hasCookies ? './instagram.txt' : undefined,
+          addHeader: [
+              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              'Accept-Language: en-US,en;q=0.9',
+              'Referer: https://www.instagram.com/',
+          ],
+          // Tenta extrair vídeo MP4
+          format: 'best[ext=mp4]',
+      });
 
-        // Tenta achar vídeo MP4
-        const videoFormat = videoInfo.formats?.find(
-            (format) =>
-                format.ext === 'mp4' &&
-                format.acodec !== 'none' &&
-                format.vcodec !== 'none'
-        );
-        // Tenta achar áudio (opcional)
-        const audioFormat = videoInfo.formats?.find((format) => format.ext === 'm4a');
+      // Exibe todo o JSON no console (para depuração)
+      console.log('🔍 Instagram: JSON completo videoInfo =', JSON.stringify(videoInfo, null, 2));
 
-        if (videoFormat) {
-            // Retorna como vídeo
-            return res.json({
-                id: videoInfo.id || null,
-                title: videoInfo.title || 'Sem Título',
-                mp4_link: videoFormat.url,
-                mp3_link: audioFormat?.url || null,
-            });
-        } else {
-            // Pode ser que seja imagem -> fallback
-            const imageItems = [];
+      // Coletar informações extras (se existirem)
+      const {
+          id,
+          title,
+          description,
+          like_count,
+          comment_count,
+          duration,
+          uploader,
+          channel,
+          timestamp
+          // ... etc.
+      } = videoInfo;
 
-            // 1) Tenta requested_downloads (às vezes tem .jpg)
-            if (videoInfo.requested_downloads) {
-                for (const item of videoInfo.requested_downloads) {
-                    if (item.ext === 'jpg' || item.ext === 'jpeg') {
-                        imageItems.push(item.url);
-                    }
-                }
-            }
+      // Vamos procurar o melhor formato de vídeo (maior resolução)
+      const allVideoFormats = (videoInfo.formats || [])
+          .filter(fmt => fmt.ext === 'mp4' && fmt.vcodec !== 'none'); 
 
-            // 2) Se não achou nada, faz scraping
-            if (!imageItems.length) {
-                const resp = await axios.get(url, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    },
-                });
-                const dom = new JSDOM(resp.data);
-                const document = dom.window.document;
-                const foundImages = Array.from(document.querySelectorAll('img[src]')).map((img) => img.src);
-                imageItems.push(...foundImages);
-            }
+      let bestFormat = null;
+      let bestResolution = 0;
+      for (const f of allVideoFormats) {
+          const w = f.width || 0;
+          const h = f.height || 0;
+          const area = w * h;
+          if (area > bestResolution) {
+              bestResolution = area;
+              bestFormat = f;
+          }
+      }
 
-            if (imageItems.length) {
-                return res.json({
-                    type: 'images',
-                    images: imageItems,
-                });
-            }
+      // Se encontrou algum formato de vídeo
+      if (bestFormat) {
+          // Tentar achar áudio (m4a) opcional
+          const audioFormat = videoInfo.formats?.find(f => f.ext === 'm4a');
 
-            // Se nada encontrado
-            return res.status(404).json({
-                error: 'Não foi possível extrair vídeo ou imagem do Instagram.'
-            });
-        }
-    } catch (error) {
-        console.error('❌ Instagram: Erro:', error.message);
-        return res.status(500).json({ error: 'Erro ao processar o link do Instagram.' });
-    }
+          // Exemplo de retorno com várias infos extras
+          return res.json({
+              id: id || null,
+              title: title || 'Sem Título',
+              description: description || 'Sem descrição',
+              like_count: like_count ?? 0,
+              comment_count: comment_count ?? 0,
+              uploader: uploader || 'Desconhecido',
+              channel: channel || '',  // ou "Sem canal"
+              duration: duration ?? null,
+              timestamp: timestamp ?? null,
+              mp4_link: bestFormat.url,
+              mp3_link: audioFormat?.url || null,
+              resolution: bestFormat.width && bestFormat.height
+                  ? `${bestFormat.width}x${bestFormat.height}`
+                  : 'Desconhecida',
+          });
+      } else {
+          // Caso não tenha vídeo, tentamos extrair imagens
+          const imageItems = [];
+
+          // 1) Tenta requested_downloads (às vezes tem .jpg)
+          if (videoInfo.requested_downloads) {
+              for (const item of videoInfo.requested_downloads) {
+                  if (item.ext === 'jpg' || item.ext === 'jpeg') {
+                      imageItems.push(item.url);
+                  }
+              }
+          }
+
+          // 2) Se não achou nada, faz scraping manual
+          if (!imageItems.length) {
+              const resp = await axios.get(url, {
+                  headers: {
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                  },
+              });
+              const dom = new JSDOM(resp.data);
+              const document = dom.window.document;
+              const foundImages = Array.from(document.querySelectorAll('img[src]')).map((img) => img.src);
+              imageItems.push(...foundImages);
+          }
+
+          if (imageItems.length) {
+              // Incluímos também as infos extras (como description, etc.) se quiser
+              return res.json({
+                  type: 'images',
+                  images: imageItems,
+                  title: title || 'Post de Imagens',
+                  description: description || 'Sem descrição',
+                  like_count: like_count ?? 0,
+                  comment_count: comment_count ?? 0,
+                  uploader: uploader || 'Desconhecido',
+                  channel: channel || '',
+                  duration: duration ?? null
+              });
+          }
+
+          // Se nada encontrado
+          return res.status(404).json({
+              error: 'Não foi possível extrair vídeo ou imagem do Instagram.'
+          });
+      }
+  } catch (error) {
+      console.error('❌ Instagram: Erro:', error.message);
+      return res.status(500).json({ error: 'Erro ao processar o link do Instagram.' });
+  }
 });
+
 
 /**
  * Rota para Kwai
