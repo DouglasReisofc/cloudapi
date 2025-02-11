@@ -1,3 +1,4 @@
+const os = require('os');
 const express = require('express');
 const { exec, spawn } = require('child_process');
 const axios = require('axios');
@@ -755,11 +756,21 @@ app.get('/api/convert/:userId', async (req, res) => {
 // Rota para servir arquivos temporários após a conversão
 app.use('/:userId', express.static(tmpFolder));
 
-// Inicia o servidor
-app.listen(port, () => {
-    console.log(`🚀 Servidor rodando em http://localhost:${port}`);
 
-    // Agenda a limpeza da pasta "images" a cada 5 minutos
-    setInterval(clearImagesFolder, 5 * 60 * 1000); // 5 minutos em milissegundos
-    console.log('⏲️ Limpeza automática da pasta "images" configurada para cada 5 minutos.');
+
+app.listen(port, () => {
+    // Obtém o IP local da máquina
+    const networkInterfaces = os.networkInterfaces();
+    let ip = 'localhost'; // Caso não encontre, use "localhost"
+
+    for (const interfaceName in networkInterfaces) {
+        for (const iface of networkInterfaces[interfaceName]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                ip = iface.address;
+            }
+        }
+    }
+
+    console.log(`🚀 Servidor rodando em http://${ip}:${port}`);
 });
+
