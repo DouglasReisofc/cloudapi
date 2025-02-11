@@ -5,6 +5,8 @@ const youtubedl = require('youtube-dl-exec'); // Biblioteca principal para downl
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 const path = require('path');
+const puppeteer = require('puppeteer');
+const { v4: uuidv4 } = require('uuid');
 
 // Pasta temporária para armazenar arquivos de conversão
 const tmpFolder = './tmp';
@@ -17,7 +19,42 @@ if (!fs.existsSync(tmpFolder)) {
 
 // Configurações do Express
 const app = express();
-const port = 3000;
+const port = 3001;
+
+
+// Pasta para armazenar arquivos estáticos
+const imagesFolder = './images';
+
+// Cria a pasta se não existir
+if (!fs.existsSync(imagesFolder)) {
+    fs.mkdirSync(imagesFolder);
+    console.log('📁 Pasta "images" criada:', imagesFolder);
+}
+
+// Função para limpar a pasta "images"
+function clearImagesFolder() {
+    fs.readdir(imagesFolder, (err, files) => {
+        if (err) {
+            console.error('❌ Erro ao ler a pasta "images":', err);
+            return;
+        }
+
+        files.forEach((file) => {
+            const filePath = path.join(imagesFolder, file);
+            fs.unlink(filePath, (unlinkErr) => {
+                if (unlinkErr) {
+                    console.error('❌ Erro ao excluir arquivo:', filePath, unlinkErr);
+                } else {
+                    console.log('🗑️ Arquivo excluído:', filePath);
+                }
+            });
+        });
+    });
+}
+
+// Servir arquivos estáticos da pasta "images"
+app.use('/api/images', express.static(path.join(__dirname, 'images')));
+
 
 /**
  * Rota para TikTok
@@ -122,144 +159,234 @@ app.get('/api/youtube', async (req, res) => {
     }
 });
 
-/**
- * Rota para Instagram (melhor resolução + informações extras)
- */
 app.get('/api/instagram', async (req, res) => {
-  const { url } = req.query;
+    const { url } = req.query;
 
-  if (!url) {
-      return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
-  }
+    if (!url) {
+        return res.status(400).json({ error: 'O parâmetro "url" é obrigatório.' });
+    }
 
-  try {
-      console.log('🔄 Instagram: Processando URL:', url);
+    try {
+        console.log('🔄 Instagram: Processando URL:', url);
 
-      // Se tiver cookies do Instagram em 'instagram.txt'
-      const cookiesPath = path.resolve('./instagram.txt');
-      const hasCookies = fs.existsSync(cookiesPath);
-
-      // Extrai vídeo ou imagem usando youtubedl
-      const videoInfo = await youtubedl(url, {
-          dumpSingleJson: true,
-          cookies: hasCookies ? './instagram.txt' : undefined,
-          addHeader: [
-              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-              'Accept-Language: en-US,en;q=0.9',
-              'Referer: https://www.instagram.com/',
-          ],
-          // Tenta extrair vídeo MP4
-          format: 'best[ext=mp4]',
-      });
-
-      // Exibe todo o JSON no console (para depuração)
-      console.log('🔍 Instagram: JSON completo videoInfo =', JSON.stringify(videoInfo, null, 2));
-
-      // Coletar informações extras (se existirem)
-      const {
-          id,
-          title,
-          description,
-          like_count,
-          comment_count,
-          duration,
-          uploader,
-          channel,
-          timestamp
-          // ... etc.
-      } = videoInfo;
-
-      // Vamos procurar o melhor formato de vídeo (maior resolução)
-      const allVideoFormats = (videoInfo.formats || [])
-          .filter(fmt => fmt.ext === 'mp4' && fmt.vcodec !== 'none'); 
-
-      let bestFormat = null;
-      let bestResolution = 0;
-      for (const f of allVideoFormats) {
-          const w = f.width || 0;
-          const h = f.height || 0;
-          const area = w * h;
-          if (area > bestResolution) {
-              bestResolution = area;
-              bestFormat = f;
-          }
-      }
-
-      // Se encontrou algum formato de vídeo
-      if (bestFormat) {
-          // Tentar achar áudio (m4a) opcional
-          const audioFormat = videoInfo.formats?.find(f => f.ext === 'm4a');
-
-          // Exemplo de retorno com várias infos extras
-          return res.json({
-              id: id || null,
-              title: title || 'Sem Título',
-              description: description || 'Sem descrição',
-              like_count: like_count ?? 0,
-              comment_count: comment_count ?? 0,
-              uploader: uploader || 'Desconhecido',
-              channel: channel || '',  // ou "Sem canal"
-              duration: duration ?? null,
-              timestamp: timestamp ?? null,
-              mp4_link: bestFormat.url,
-              mp3_link: audioFormat?.url || null,
-              resolution: bestFormat.width && bestFormat.height
-                  ? `${bestFormat.width}x${bestFormat.height}`
-                  : 'Desconhecida',
-          });
-      } else {
-          // Caso não tenha vídeo, tentamos extrair imagens
-          const imageItems = [];
-
-          // 1) Tenta requested_downloads (às vezes tem .jpg)
-          if (videoInfo.requested_downloads) {
-              for (const item of videoInfo.requested_downloads) {
-                  if (item.ext === 'jpg' || item.ext === 'jpeg') {
-                      imageItems.push(item.url);
-                  }
-              }
-          }
-
-          // 2) Se não achou nada, faz scraping manual
-          if (!imageItems.length) {
-              const resp = await axios.get(url, {
-                  headers: {
-                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                  },
-              });
-              const dom = new JSDOM(resp.data);
-              const document = dom.window.document;
-              const foundImages = Array.from(document.querySelectorAll('img[src]')).map((img) => img.src);
-              imageItems.push(...foundImages);
-          }
-
-          if (imageItems.length) {
-              // Incluímos também as infos extras (como description, etc.) se quiser
-              return res.json({
-                  type: 'images',
-                  images: imageItems,
-                  title: title || 'Post de Imagens',
-                  description: description || 'Sem descrição',
-                  like_count: like_count ?? 0,
-                  comment_count: comment_count ?? 0,
-                  uploader: uploader || 'Desconhecido',
-                  channel: channel || '',
-                  duration: duration ?? null
-              });
-          }
-
-          // Se nada encontrado
-          return res.status(404).json({
-              error: 'Não foi possível extrair vídeo ou imagem do Instagram.'
-          });
-      }
-  } catch (error) {
-      console.error('❌ Instagram: Erro:', error.message);
-      return res.status(500).json({ error: 'Erro ao processar o link do Instagram.' });
-  }
+        if (url.includes('/stories/')) {
+            console.log('🔍 Detectado: Stories');
+            return await processStories(url, res);
+        } else if (url.includes('/reel/')) {
+            console.log('🔍 Detectado: Reels');
+            return await processReels(url, res);
+        } else if (url.includes('/p/')) {
+            console.log('🔍 Detectado: Imagens');
+            return await processImages(url, res);
+        } else {
+            return res.status(400).json({ error: 'Tipo de link desconhecido.' });
+        }
+    } catch (error) {
+        console.error('❌ Instagram: Erro:', error.message);
+        return res.status(500).json({ error: 'Erro ao processar o link do Instagram.' });
+    }
 });
 
+/**
+ * Processa links de Stories
+ */
+async function processStories(url, res) {
+    const cookiesPath = path.resolve('./instagram.txt');
+    const hasCookies = fs.existsSync(cookiesPath);
 
+    try {
+        const videoInfo = await youtubedl(url, {
+            dumpSingleJson: true,
+            cookies: hasCookies ? './instagram.txt' : undefined,
+            addHeader: [
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Accept-Language: en-US,en;q=0.9',
+                'Referer: https://www.instagram.com/',
+            ],
+            format: 'best[ext=mp4]',
+        });
+
+        if (videoInfo._type === 'playlist' && videoInfo.entries) {
+            const stories = videoInfo.entries.map((entry) => {
+                const bestVideo = entry.formats
+                    .filter((fmt) => fmt.ext === 'mp4' && fmt.vcodec !== 'none')
+                    .reduce((best, current) => {
+                        const bestArea = (best.width || 0) * (best.height || 0);
+                        const currentArea = (current.width || 0) * (current.height || 0);
+                        return currentArea > bestArea ? current : best;
+                    }, {});
+
+                return {
+                    id: entry.id,
+                    title: entry.title || 'Sem título',
+                    duration: entry.duration || null,
+                    uploader: entry.uploader || 'Desconhecido',
+                    timestamp: entry.timestamp || null,
+                    video: bestVideo.url || null,
+                    resolution: bestVideo.width && bestVideo.height ? `${bestVideo.width}x${bestVideo.height}` : 'Desconhecida',
+                };
+            });
+
+            return res.json({
+                id: videoInfo.id,
+                title: videoInfo.title || 'Stories',
+                uploader: videoInfo.uploader || 'Desconhecido',
+                stories,
+            });
+        }
+
+        return res.status(400).json({ error: 'Nenhum stories encontrado.' });
+    } catch (error) {
+        console.error('❌ Erro ao processar Stories:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Processa links de Reels
+ */
+async function processReels(url, res) {
+    try {
+        const videoInfo = await youtubedl(url, {
+            dumpSingleJson: true,
+            addHeader: [
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Accept-Language: en-US,en;q=0.9',
+                'Referer: https://www.instagram.com/',
+            ],
+            format: 'best[ext=mp4]',
+        });
+
+        const bestVideo = videoInfo.formats
+            .filter((fmt) => fmt.ext === 'mp4' && fmt.vcodec !== 'none')
+            .reduce((best, current) => {
+                const bestArea = (best.width || 0) * (best.height || 0);
+                const currentArea = (current.width || 0) * (current.height || 0);
+                return currentArea > bestArea ? current : best;
+            }, {});
+
+        return res.json({
+            id: videoInfo.id,
+            title: videoInfo.title || 'Sem título',
+            description: videoInfo.description || 'Sem descrição',
+            uploader: videoInfo.uploader || 'Desconhecido',
+            like_count: videoInfo.like_count || 0,
+            comment_count: videoInfo.comment_count || 0,
+            duration: videoInfo.duration || null,
+            timestamp: videoInfo.timestamp || null,
+            video: bestVideo.url || null,
+            resolution: bestVideo.width && bestVideo.height ? `${bestVideo.width}x${bestVideo.height}` : 'Desconhecida',
+            thumbnail: videoInfo.thumbnail || null,
+        });
+    } catch (error) {
+        console.error('❌ Erro ao processar Reels:', error.message);
+        throw error;
+    }
+}
+
+async function processImages(url, res) {
+    try {
+        const browser = await puppeteer.launch({
+            executablePath: '/usr/bin/brave-browser', // Caminho do Brave
+            headless: true, // Desative o modo headless para ver as ações no navegador
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+            ],
+        });
+
+        const page = await browser.newPage();
+        await page.goto('https://snapinst.app/pt');
+        console.log('🌐 Página acessada com sucesso.');
+
+        await page.waitForSelector('#url');
+        await page.type('#url', url);
+        console.log('✍️ URL do Instagram preenchida.');
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await page.click('.btn.btn-paste');
+        console.log('✅ Botão "Paste" clicado.');
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await page.click('.btn.btn-get');
+        console.log('✅ Botão "Download" clicado.');
+
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        const modalSelector = '.modal-content';
+        const modalExists = await page.$(modalSelector);
+        if (modalExists) {
+            const closeModalSelector = '#close-modal';
+            await page.click(closeModalSelector);
+            console.log('🛠️ Modal detectado e fechado.');
+        } else {
+            console.log('🛠️ Nenhum modal detectado, prosseguindo.');
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const containerSelector = '.container .download';
+        const containerExists = await page.$(containerSelector);
+
+        if (containerExists) {
+            const downloadLinks = await page.$$eval(`${containerSelector} a`, (links) =>
+                links.map((link) => link.href)
+            );
+
+            console.log('📥 Links de download encontrados:', downloadLinks);
+
+            // Pasta para salvar imagens
+            const outputDir = './images';
+            if (!fs.existsSync(outputDir)) {
+                fs.mkdirSync(outputDir);
+                console.log(`📂 Pasta criada: ${outputDir}`);
+            }
+
+            // Função para baixar uma imagem usando axios
+            const downloadImage = async (url) => {
+                const uniqueName = `${uuidv4()}.jpg`; // Nome único aleatório com extensão .jpg
+                const filepath = path.join(outputDir, uniqueName);
+                const response = await axios({
+                    url,
+                    method: 'GET',
+                    responseType: 'stream',
+                });
+                const writer = fs.createWriteStream(filepath);
+                response.data.pipe(writer);
+                return new Promise((resolve, reject) => {
+                    writer.on('finish', () => resolve(uniqueName));
+                    writer.on('error', reject);
+                });
+            };
+
+            // Baixar todas as imagens e armazenar os caminhos completos
+            const imageUrls = [];
+            for (const link of downloadLinks) {
+                console.log(`⬇️ Baixando imagem: ${link}`);
+                const uniqueName = await downloadImage(link);
+                const fullUrl = `https://fitting-highly-husky.ngrok-free.app/api/images/${uniqueName}`;
+                imageUrls.push(fullUrl);
+                console.log(`✅ Imagem salva e disponível em: ${fullUrl}`);
+            }
+
+            console.log('✅ Todas as imagens foram baixadas.');
+            await browser.close();
+
+            // Resposta JSON incluindo os links completos
+            return res.json({
+                type: 'images',
+                url,
+                images: imageUrls,
+            });
+        } else {
+            console.log('❌ Nenhum link de download encontrado.');
+            await browser.close();
+            return res.status(404).json({ error: 'Nenhuma imagem encontrada.' });
+        }
+    } catch (error) {
+        console.error('❌ Erro ao processar Imagens:', error.message);
+        throw error;
+    }
+}
 /**
  * Rota para Kwai
  */
@@ -630,5 +757,9 @@ app.use('/:userId', express.static(tmpFolder));
 
 // Inicia o servidor
 app.listen(port, () => {
-    console.log(`Servidor rodando em http://localhost:${port}`);
+    console.log(`🚀 Servidor rodando em http://localhost:${port}`);
+
+    // Agenda a limpeza da pasta "images" a cada 5 minutos
+    setInterval(clearImagesFolder, 5 * 60 * 1000); // 5 minutos em milissegundos
+    console.log('⏲️ Limpeza automática da pasta "images" configurada para cada 5 minutos.');
 });

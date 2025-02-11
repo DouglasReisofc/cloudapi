@@ -1,9 +1,15 @@
 {
   "name": "cloudapi",
   "version": "1.0.0",
-  "description": "",
+  "description": "Projeto Node.js com PM2 para gerenciamento no aaPanel",
   "main": "index.js",
   "scripts": {
+    "start": "pm2 start index.js --name cloudapi",
+    "stop": "pm2 stop cloudapi",
+    "restart": "pm2 restart cloudapi",
+    "delete": "pm2 delete cloudapi",
+    "logs": "pm2 logs cloudapi",
+    "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,7 +25,9 @@
     "jsdom": "^26.0.0",
     "nodemon": "^3.1.9",
     "pg": "^8.13.1",
+    "puppeteer": "^24.1.0",
     "request-promise": "^4.2.6",
+    "uuid": "^11.0.5",
     "youtube-dl-exec": "^3.0.12",
     "ytdl-core": "^4.11.5"
   }
